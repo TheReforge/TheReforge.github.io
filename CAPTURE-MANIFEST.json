@@ -1,0 +1,74 @@
+{
+  "manifest_version": "1.0",
+  "product": "re-forge capture client",
+  "purpose": "A machine-readable, agent-legible declaration of exactly what the re-forge capture client reads, what leaves the machine, where it goes, and how to stop it. An evaluating coding agent (or a human) can parse this and verify every claim against the open client source in this directory before consenting to install. This file is TRUE to the code (clients/capture/*, clients/mcp/reforge_mcp.py); the human-readable version is clients/CONSENT.md and docs/DISCLOSURES.md.",
+  "human_readable": ["clients/CONSENT.md", "docs/DISCLOSURES.md"],
+  "install": {
+    "human_installed": true,
+    "agent_in_the_loop": false,
+    "note": "You install this yourself. No coding agent is required or in the loop to run it. The agent whose transcripts are captured cannot enable, disable, or hide capture."
+  },
+  "consent": {
+    "required": true,
+    "default_state": "off",
+    "gate": "Capture and egress proceed only if the human-consent file ~/.reforge/CONSENT exists. Before consent, nothing is captured and nothing is sent.",
+    "grant": "reforge on",
+    "revoke": "reforge off  (removes consent; capture stops immediately)"
+  },
+  "reads": {
+    "description": "Local transcript files the client reads to reconstruct your coding sessions. Read-only. The vscdb family is read via snapshot-and-sweep (copied to a temp file with byte-identity asserted; the live store is never opened).",
+    "sources": [
+      {"tool": "Claude Code", "globs": ["~/.claude/projects/**/*.jsonl", "~/.claude/history.jsonl"]},
+      {"tool": "Cursor / VS Code forks", "globs": ["**/globalStorage/**/state.vscdb"], "method": "snapshot-and-sweep"},
+      {"tool": "Codex", "globs": ["**/conversations.json", "**/*.jsonl"]}
+    ]
+  },
+  "sends": {
+    "description": "What leaves the machine and to where. Content is redacted before it leaves (see redaction).",
+    "fields": [
+      {"name": "content", "what": "prompt / model answer / reasoning / tool-call text and tool RESULTS. Tool results INCLUDE source code, diffs, and command output, captured verbatim and clamped to ~4-8 KB per item. This is not 'just prompts': your source code can leave the machine inside tool output.", "redacted": true},
+      {"name": "role", "what": "user | assistant | tool"},
+      {"name": "event_type", "what": "prompt.submitted | tool.used | session.stopped | ..."},
+      {"name": "repo", "what": "repository name only (not the file tree)"},
+      {"name": "session_id", "what": "opaque session identifier: the coding tool's own session UUID when it has one, otherwise a deterministic digest of the capture surface (e.g. the transcript file) so the same message is always recognised as the same message. Never a device, account or user identifier, and never anything the payload does not already carry."},
+      {"name": "is_sidechain", "what": "true for sub-agent (fan-out) turns. Sidechains are captured but attributed to their parent work item and never counted as independent human work."},
+      {"name": "cost", "what": "model, tokens in/out, duration_ms (sent via /v1/agent-runs)"}
+    ],
+    "destinations": [
+      {
+        "name": "your team's re-forge cloud",
+        "url_env": "REFORGE_INGEST_URL",
+        "hosting": "re-forge-hosted OR self-hosted by your team",
+        "endpoints": ["/v1/events", "/v1/events/batch", "/v1/agent-runs", "/v1/preflight", "/v1/mergeplan", "/v1/repo-graph"]
+      },
+      {
+        "name": "OpenAI",
+        "role": "sub-processor",
+        "what": "a secret- and PII-redacted projection of content, for embeddings and for preflight / merge-plan collision analysis, when the cloud runs with OpenAI embeddings on (the production default)",
+        "optional": true,
+        "disable": "REFORGE_EMBED_PROVIDER=fake (or route through your own endpoint)"
+      }
+    ]
+  },
+  "never_captured": [
+    "Your Anthropic / OpenAI API key or subscription credential — never read, never stored.",
+    "Files matching the secret denylist (.env, *.pem, *.credentials.json, *accessToken*, ...) — never opened.",
+    "Whole-file snapshots — off by default (the clamped tool-result excerpts above are still captured)."
+  ],
+  "redaction": {
+    "client_side_secret_strip": "Provider keys, tokens, and passwords are stripped from content BEFORE it is written to the local spool or sent (regex denylist, applied client-side; the server force-strips again as a backstop).",
+    "pii_before_embed": "The projection sent to OpenAI for embeddings is PII-redacted (Presidio) — the embed text is PII-free.",
+    "encryption_at_rest": "Content is stored envelope-encrypted (AES-256-GCM, per-org data key) in the cloud."
+  },
+  "kill_switch": {
+    "local_stop": "~/.reforge/DISABLED — create this one-byte sentinel and the client captures and sends nothing (durable, unambiguous, fastest path).",
+    "fleet_stop": "~/.reforge/killswitch.json — fetched from the PUBLIC re-forge repo manifest, lets re-forge halt a client version fleet-wide.",
+    "uninstall": "reforge uninstall  (removes hooks, config, and local state)"
+  },
+  "retention": "Captured content is kept until your org's retention window expires (set by your admin).",
+  "auditability": {
+    "client_open_source": true,
+    "engine_private": true,
+    "note": "This capture client is open-source and auditable — read clients/capture/* and clients/mcp/reforge_mcp.py and confirm this manifest is accurate. The private engine (reforge-cloud) processes what you send; it does not change what leaves your machine."
+  }
+}
